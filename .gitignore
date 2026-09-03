@@ -1,0 +1,25 @@
+# Build
+build/
+build_release/
+release/
+release_eddsa/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Temporary
+*.tmp
+*.bak
