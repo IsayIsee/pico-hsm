@@ -204,7 +204,7 @@ Note that the pure-browser option [Pico Commissioner](https://www.picokeys.com/p
 Before building, ensure you have installed the toolchain for the Pico and the Pico SDK is properly located in your drive.
 
 ```
-git clone https://github.com/polhenarejos/pico-hsm
+git clone https://github.com/isayisee/pico-hsm
 git submodule update --init --recursive
 cd pico-hsm
 mkdir build
