@@ -20,7 +20,7 @@
 import pytest
 from binascii import unhexlify, hexlify
 from picohsm.utils import int_to_bytes
-from picohsm.const import DEFAULT_DKEK_SHARES
+from picohsm.const import DEFAULT_DKEK_SHARES, DEFAULT_PIN
 from const import DEFAULT_DKEK
 from cvc.asn1 import ASN1
 from cvc.certificates import CVC
@@ -37,9 +37,25 @@ def sha256_sha256(data):
     return hashlib.sha256(hashlib.sha256(data).digest()).digest()
 
 def test_initialize(device):
-    device.initialize(dkek_shares=DEFAULT_DKEK_SHARES, no_dev_cert=True)
+    device.initialize(dkek_shares=DEFAULT_DKEK_SHARES)
     resp = device.import_dkek(DEFAULT_DKEK)
     resp = device.import_dkek(DEFAULT_DKEK)
+
+
+def hd_generate_master_raw(device, curve, id, seed):
+    p1 = {'secp256k1': 0x01, 'secp256r1': 0x02, 'symmetric': 0x03}[curve]
+    return device._PicoHSM__card.send(
+        command=0x4A, cla=0x80, p1=p1, p2=id, data=seed, codes=[]
+    )
+
+
+def test_generate_master_requires_user_authentication(device):
+    device.initialize(dkek_shares=DEFAULT_DKEK_SHARES)
+    device.logout()
+
+    with pytest.raises(APDUResponse) as e:
+        hd_generate_master_raw(device, curve='secp256k1', id=0, seed=b'\x00' * 16)
+    assert e.value.sw == SWCodes.SW_SECURITY_STATUS_NOT_SATISFIED
 
 seeds = [
         {
@@ -87,6 +103,7 @@ seeds = [
     "seed", seeds
 )
 def test_generate_master(device, seed):
+    device.login(DEFAULT_PIN)
     resp = device.hd_generate_master_node(curve=seed['name'], id=seed['id'], seed=seed['seed'])
 
 def hardened(i):

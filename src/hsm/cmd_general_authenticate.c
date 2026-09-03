@@ -17,38 +17,46 @@
 
 #include "sc_hsm.h"
 #include "mbedtls/ecdh.h"
-#include "asn1.h"
+#include "tlv.h"
 #include "random.h"
 #include "oid.h"
 #include "eac.h"
 #include "files.h"
 #include "otp.h"
 
-int cmd_general_authenticate() {
+int cmd_general_authenticate(void) {
     if (P1(apdu) == 0x0 && P2(apdu) == 0x0) {
+        if (apdu.nc < 2) {
+            return SW_WRONG_LENGTH();
+        }
         if (apdu.data[0] == 0x7C) {
+            if (apdu.data[1] != apdu.nc - 2) {
+                return SW_WRONG_DATA();
+            }
             int r = 0;
             uint16_t pubkey_len = 0;
             const uint8_t *pubkey = NULL;
-            uint16_t tag = 0x0;
-            uint8_t *tag_data = NULL, *p = NULL;
-            uint16_t tag_len = 0;
-            asn1_ctx_t ctxi;
-            asn1_ctx_init(apdu.data + 2, (uint16_t)(apdu.nc - 2), &ctxi);
-            while (walk_tlv(&ctxi, &p, &tag, &tag_len, &tag_data)) {
-                if (tag == 0x80) {
-                    pubkey = tag_data - 1; //mbedtls ecdh starts reading one pos before
-                    pubkey_len = tag_len + 1;
+            uint8_t *p = NULL;
+            tlv_item_t item;
+            tlv_ctx_t ctxi;
+            tlv_ctx_init(BYTE_ARRAY(apdu.data + 2, (uint16_t)(apdu.nc - 2)), &ctxi);
+            while (tlv_walk(&ctxi, &p, &item)) {
+                if (item.tag == 0x80) {
+                    pubkey = item.value.data - 1; //mbedtls ecdh starts reading one pos before
+                    pubkey_len = item.value.len + 1;
                 }
             }
-            file_t *fkey = search_file(EF_KEY_DEV);
+            if (!pubkey) {
+                return SW_WRONG_DATA();
+            }
+            file_t *fkey = hsm_key_search(0);
             if (!fkey) {
                 return SW_EXEC_ERROR();
             }
             mbedtls_ecp_keypair ectx;
             mbedtls_ecp_keypair_init(&ectx);
-            r = load_private_key_ecdh(&ectx, fkey);
-            if (r != PICOKEY_OK) {
+            r = load_private_key_ecdh(&ectx, fkey, FILE_OBJECT_OPERATION_DERIVE, true);
+            if (r != PICOKEYS_OK) {
                 mbedtls_ecp_keypair_free(&ectx);
                 return SW_EXEC_ERROR();
             }
@@ -77,18 +85,13 @@ int cmd_general_authenticate() {
             }
             size_t olen = 0;
             uint8_t derived[MBEDTLS_ECP_MAX_BYTES];
-            r = mbedtls_ecdh_calc_secret(&ctx,
-                                         &olen,
-                                         derived,
-                                         MBEDTLS_ECP_MAX_BYTES,
-                                         random_gen,
-                                         NULL);
+            r = mbedtls_ecdh_calc_secret(&ctx, &olen, derived, MBEDTLS_ECP_MAX_BYTES, random_fill_iterator, NULL);
             mbedtls_ecdh_free(&ctx);
             if (r != 0) {
                 return SW_EXEC_ERROR();
             }
 
-            sm_derive_all_keys(derived, olen);
+            sm_derive_all_keys(CONST_BYTE_ARRAY(derived, olen));
 
             uint8_t *t = (uint8_t *) calloc(1, pubkey_len + 16);
             memcpy(t, "\x7F\x49\x4F\x06\x0A", 5);
@@ -107,10 +110,10 @@ int cmd_general_authenticate() {
             res_APDU[res_APDU_size++] = 0x82;
             res_APDU[res_APDU_size++] = 8;
 
-            r = sm_sign(t, pubkey_len + 16, res_APDU + res_APDU_size);
+            r = sm_sign(CONST_BYTE_ARRAY(t, pubkey_len + 16), res_APDU + res_APDU_size);
 
             free(t);
-            if (r != PICOKEY_OK) {
+            if (r != PICOKEYS_OK) {
                 return SW_EXEC_ERROR();
             }
             res_APDU_size += 8;

@@ -16,8 +16,9 @@
  */
 
 #include "sc_hsm.h"
+#include "files.h"
 
-int cmd_verify() {
+int cmd_verify(void) {
     uint8_t p1 = P1(apdu);
     uint8_t p2 = P2(apdu);
 
@@ -37,7 +38,7 @@ int cmd_verify() {
             return SW_REFERENCE_NOT_FOUND();
         }
         if (apdu.nc > 0) {
-            return check_pin(file_pin1, apdu.data, (uint16_t)apdu.nc);
+            return check_pin(file_pin1, CONST_BYTE_ARRAY(apdu.data, (uint16_t)apdu.nc));
         }
         if (file_read_uint8(file_retries_pin1) == 0) {
             return SW_PIN_BLOCKED();
@@ -49,7 +50,7 @@ int cmd_verify() {
             return SW_REFERENCE_NOT_FOUND();
         }
         if (apdu.nc > 0) {
-            return check_pin(file_sopin, apdu.data, (uint16_t)apdu.nc);
+            return check_pin(file_sopin, CONST_BYTE_ARRAY(apdu.data, (uint16_t)apdu.nc));
         }
         if (file_read_uint8(file_retries_sopin) == 0) {
             return SW_PIN_BLOCKED();

@@ -15,21 +15,18 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "sc_hsm.h"
-#include "random.h"
-#include "eac.h"
+#ifndef _OBJECT_AUTHORIZATION_H_
+#define _OBJECT_AUTHORIZATION_H_
 
-int cmd_session_pin() {
-    if (P1(apdu) == 0x01 && P2(apdu) == 0x81) {
-        memcpy(sm_session_pin, random_bytes_get(8), 8);
-        sm_session_pin_len = 8;
+#include "object_policy.h"
 
-        memcpy(res_APDU, sm_session_pin, sm_session_pin_len);
-        res_APDU_size = sm_session_pin_len;
-        apdu.ne = sm_session_pin_len;
-    }
-    else {
-        return SW_INCORRECT_P1P2();
-    }
-    return SW_OK();
-}
+#define HSM_OBJECT_KEY_POLICY_ID 0x0101u
+
+int hsm_object_authorization_context_build(bool internal_firmware, file_object_authorization_context_t *context);
+const_byte_array_t hsm_object_authorization_key_policy(void);
+bool hsm_object_authorization_key_operation(uint16_t operation, bool internal_firmware);
+void hsm_object_authorization_session_invalidate(void);
+uint32_t hsm_object_authorization_session_epoch(void);
+void hsm_object_authorization_command_set_secure_messaging(bool active);
+
+#endif // _OBJECT_AUTHORIZATION_H_

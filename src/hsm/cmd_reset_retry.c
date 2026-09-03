@@ -18,8 +18,10 @@
 #include "crypto_utils.h"
 #include "sc_hsm.h"
 #include "kek.h"
+#include "files.h"
+#include "object_authorization.h"
 
-int cmd_reset_retry() {
+int cmd_reset_retry(void) {
     if (P2(apdu) != 0x81) {
         return SW_REFERENCE_NOT_FOUND();
     }
@@ -40,7 +42,7 @@ int cmd_reset_retry() {
             if ((uint16_t)apdu.nc <= so_pin_len + 1) {
                 return SW_WRONG_LENGTH();
             }
-            uint16_t r = check_pin(file_sopin, apdu.data, so_pin_len);
+            uint16_t r = check_pin(file_sopin, CONST_BYTE_ARRAY(apdu.data, so_pin_len));
             if (r != 0x9000) {
                 return r;
             }
@@ -55,26 +57,28 @@ int cmd_reset_retry() {
             }
             newpin_len = (uint8_t)apdu.nc;
         }
-        uint8_t dhash[33];
-        dhash[0] = newpin_len;
-        double_hash_pin(apdu.data + (apdu.nc - newpin_len), newpin_len, dhash + 1);
-        file_put_data(file_pin1, dhash, sizeof(dhash));
-        if (pin_reset_retries(file_pin1, true) != PICOKEY_OK) {
+        if (pin_reset_retries(file_pin1, true) != PICOKEYS_OK) {
             return SW_MEMORY_FAILURE();
         }
         uint8_t mkek[MKEK_SIZE];
         int r = load_mkek(mkek); //loads the MKEK with SO pin
-        if (r != PICOKEY_OK) {
+        if (r != PICOKEYS_OK) {
             return SW_EXEC_ERROR();
         }
-        hash_multi(apdu.data + (apdu.nc - newpin_len), newpin_len, session_pin);
+        hsm_object_authorization_session_invalidate();
+        pin_derive_session(CONST_BYTE_ARRAY(apdu.data + (apdu.nc - newpin_len), newpin_len), session_pin);
         has_session_pin = true;
         r = store_mkek(mkek);
         release_mkek(mkek);
-        if (r != PICOKEY_OK) {
+        if (r != PICOKEYS_OK) {
             return SW_EXEC_ERROR();
         }
-        low_flash_available();
+        uint8_t dhash[34];
+        dhash[0] = newpin_len;
+        dhash[1] = 1; // Format
+        pin_derive_verifier(CONST_BYTE_ARRAY(apdu.data + (apdu.nc - newpin_len), newpin_len), dhash + 2);
+        file_put_data(file_pin1, CONST_BYTE_ARRAY(dhash, sizeof(dhash)));
+        flash_commit();
         return SW_OK();
     }
     else if (P1(apdu) == 0x1 || P1(apdu) == 0x3) {
@@ -86,7 +90,7 @@ int cmd_reset_retry() {
             if (apdu.nc != so_pin_len) {
                 return SW_WRONG_LENGTH();
             }
-            uint16_t r = check_pin(file_sopin, apdu.data, so_pin_len);
+            uint16_t r = check_pin(file_sopin, CONST_BYTE_ARRAY(apdu.data, so_pin_len));
             if (r != 0x9000) {
                 return r;
             }
@@ -99,7 +103,7 @@ int cmd_reset_retry() {
                 return SW_WRONG_LENGTH();
             }
         }
-        if (pin_reset_retries(file_pin1, true) != PICOKEY_OK) {
+        if (pin_reset_retries(file_pin1, true) != PICOKEYS_OK) {
             return SW_MEMORY_FAILURE();
         }
         return SW_OK();

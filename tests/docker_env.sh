@@ -46,7 +46,7 @@
 
 
 # default values, can be overridden by the environment
-: ${MBEDTLS_DOCKER_GUEST:=bullseye}
+: ${MBEDTLS_DOCKER_GUEST:=bookworm}
 
 
 DOCKER_IMAGE_TAG="pico-hsm-test:${MBEDTLS_DOCKER_GUEST}"
@@ -90,6 +90,12 @@ run_in_docker()
         ENV_ARGS="${ENV_ARGS} $1 $2"
         shift 2
     done
+
+    # Pass the secret by name so its value is not placed in the Docker command
+    # line assembled by this helper.
+    if [ -n "${PICO_HSM_MEMORY_PASSPHRASE:-}" ]; then
+        ENV_ARGS="${ENV_ARGS} -e PICO_HSM_MEMORY_PASSPHRASE"
+    fi
 
     WORKDIR="${PWD}"
     if [ "$1" == '-w' ]; then

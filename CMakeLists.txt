@@ -17,8 +17,11 @@
 
 cmake_minimum_required(VERSION 3.13)
 
+set(USB_VID 0x2E8A)
+set(USB_PID 0x10FD)
+
 if(ESP_PLATFORM)
-    set(EXTRA_COMPONENT_DIRS src pico-keys-sdk/src)
+    set(EXTRA_COMPONENT_DIRS pico-keys-sdk/config/esp32/components src/hsm)
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 else()
     if(NOT ENABLE_EMULATION)
@@ -35,16 +38,17 @@ else()
         set(__FOR_CI 0)
     endif()
     if(__FOR_CI)
-        add_definitions(-D__FOR_CI)
+        add_compile_definitions(__FOR_CI)
     endif()
 
     add_executable(pico_hsm)
 endif()
 set(USB_ITF_CCID 1)
 set(USB_ITF_WCID 1)
-include(pico-keys-sdk/pico_keys_sdk_import.cmake)
+set(ENABLE_LIBCVC 1)
+include(pico-keys-sdk/picokeys_sdk_import.cmake)
 if(NOT ESP_PLATFORM)
-    set(SOURCES ${PICO_KEYS_SOURCES})
+    set(SOURCES ${PICOKEYS_SOURCES})
 endif()
 set(SOURCES ${SOURCES}
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/sc_hsm.c
@@ -71,16 +75,18 @@ set(SOURCES ${SOURCES}
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cmd_derive_asym.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cmd_extras.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cmd_general_authenticate.c
-    ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cmd_session_pin.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cmd_puk_auth.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cmd_pso.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cmd_bip_slip.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/cvc.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/files.c
     ${CMAKE_CURRENT_LIST_DIR}/src/hsm/kek.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/hsm/key_container.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/hsm/object_authorization.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/hsm/object_provider.c
 )
 
-SET_VERSION(ver_major ver_minor "${CMAKE_CURRENT_LIST_DIR}/src/hsm/version.h" 2)
+SET_VERSION(ver_major ver_minor "${CMAKE_CURRENT_LIST_DIR}/src/hsm/version.h")
 
 if(ESP_PLATFORM)
     project(pico_hsm)
@@ -93,16 +99,27 @@ if(NOT ESP_PLATFORM)
     target_sources(pico_hsm PUBLIC ${SOURCES})
     target_include_directories(pico_hsm PUBLIC ${INCLUDES})
 
-    target_compile_options(pico_hsm PUBLIC
+    set(COMMON_COMPILE_OPTIONS
         -Wall
     )
+    target_compile_options(pico_hsm PRIVATE ${COMMON_COMPILE_OPTIONS})
+
+    picokeys_apply_strict_flags(
+        SOURCES ${SOURCES}
+        FILTER_REGEX "/src/hsm/|/pico-keys-sdk/src/|/pico-keys-sdk/config/"
+    )
+
     if(NOT MSVC)
-        target_compile_options(pico_hsm PUBLIC
-            -Werror
-        )
+        string(FIND ${CMAKE_C_COMPILER} ":" COMPILER_COLON)
+        if(${COMPILER_COLON} GREATER_EQUAL 0)
+            target_compile_options(pico_hsm PRIVATE
+                -Wno-error=use-after-free
+            )
+        endif()
     endif()
 
     if(ENABLE_EMULATION)
+        enable_testing()
         if(NOT MSVC)
             target_compile_options(pico_hsm PUBLIC
                 -fdata-sections
@@ -124,7 +141,53 @@ if(NOT ESP_PLATFORM)
                 -Wl,--gc-sections
             )
         endif(APPLE)
-        target_link_libraries(pico_hsm PRIVATE pthread m)
+        set(PICO_HSM_EMU_LIBS picokeys_sdk pthread m)
+        target_link_libraries(pico_hsm PRIVATE ${PICO_HSM_EMU_LIBS})
+
+        add_executable(hsm_object_provider_test
+            ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/fs/object_crypto_provider.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/hsm/object_provider.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/hsm_object_provider_test.c
+        )
+        target_include_directories(hsm_object_provider_test PRIVATE ${INCLUDES})
+        if(MSVC)
+            target_compile_options(hsm_object_provider_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(hsm_object_provider_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        target_link_libraries(hsm_object_provider_test PRIVATE mbedtls)
+        add_test(NAME hsm_object_provider_test COMMAND hsm_object_provider_test)
+
+        add_executable(hsm_object_authorization_test
+            ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/fs/object_policy.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/hsm/object_authorization.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/hsm_object_authorization_test.c
+        )
+        target_include_directories(hsm_object_authorization_test PRIVATE ${INCLUDES})
+        if(MSVC)
+            target_compile_options(hsm_object_authorization_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(hsm_object_authorization_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        target_link_libraries(hsm_object_authorization_test PRIVATE mbedtls)
+        add_test(NAME hsm_object_authorization_test COMMAND hsm_object_authorization_test)
+
+        add_executable(hsm_key_container_test
+            ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/fs/object_container.c
+            ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/fs/object_container_store.c
+            ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/fs/object_policy.c
+            ${CMAKE_CURRENT_LIST_DIR}/pico-keys-sdk/src/fs/object_store_txn.c
+            ${CMAKE_CURRENT_LIST_DIR}/src/hsm/key_container.c
+            ${CMAKE_CURRENT_LIST_DIR}/tests/hsm_key_container_test.c
+        )
+        target_include_directories(hsm_key_container_test PRIVATE ${INCLUDES})
+        if(MSVC)
+            target_compile_options(hsm_key_container_test PRIVATE /W4 /WX)
+        else()
+            target_compile_options(hsm_key_container_test PRIVATE -Wall -Wextra -Werror)
+        endif()
+        target_link_libraries(hsm_key_container_test PRIVATE mbedtls)
+        add_test(NAME hsm_key_container_test COMMAND hsm_key_container_test)
     else()
         pico_add_extra_outputs(${CMAKE_PROJECT_NAME})
     endif()

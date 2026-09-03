@@ -21,20 +21,26 @@ on:
     - cron: '23 5 * * 4'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout repository and submodules
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
       with:
         submodules: recursive
+        persist-credentials: false
     - name: Build in container
       run: ./tests/build-in-docker.sh
     - name: Export image
       run: |
         mkdir -p artifacts
-        docker save pico-hsm-test:bullseye -o artifacts/docker-image.tar
+        docker save pico-hsm-test:bookworm -o artifacts/docker-image.tar
     - name: Temporarily save image
       uses: actions/upload-artifact@v4
       with:
@@ -45,14 +51,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      contents: read
     strategy:
       matrix:
         suite: ["pkcs11", "pytest", "sc-hsm-pkcs11"]
     steps:
     - name: Checkout repository and submodules
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
       with:
         submodules: recursive
+        persist-credentials: false
     - name: Retrieve saved image
       uses: actions/download-artifact@v4
       with:
@@ -63,4 +72,6 @@ jobs:
         cd artifacts
         docker load -q -i docker-image.tar
     - name: Test ${{ matrix.suite }}
+      env:
+        PICO_HSM_MEMORY_PASSPHRASE: ${{ secrets.PICO_HSM_MEMORY_PASSPHRASE }}
       run: ./tests/run-test-in-docker.sh ${{ matrix.suite }}

@@ -19,11 +19,7 @@
 #define _SC_HSM_H_
 
 #include <stdlib.h>
-#ifndef ESP_PLATFORM
-#include "common.h"
-#else
 #define MBEDTLS_ALLOW_PRIVATE_ACCESS
-#endif
 #include "mbedtls/rsa.h"
 #include "mbedtls/ecdsa.h"
 #if !defined(ENABLE_EMULATION) && !defined(ESP_PLATFORM)
@@ -31,7 +27,8 @@
 #endif
 #include "file.h"
 #include "apdu.h"
-#include "pico_keys.h"
+#include "picokeys.h"
+#include "object_policy.h"
 #include "usb.h"
 
 #define MAX_APDU_DATA (USB_BUFFER_SIZE - 20)
@@ -82,8 +79,6 @@ extern const uint8_t sc_hsm_aid[];
 
 #define HSM_OPT_RRC                 0x0001
 #define HSM_OPT_TRANSPORT_PIN       0x0002
-#define HSM_OPT_SESSION_PIN         0x0004
-#define HSM_OPT_SESSION_PIN_EXPL    0x000C
 #define HSM_OPT_REPLACE_PKA         0x0008
 #define HSM_OPT_COMBINED_AUTH       0x0010
 #define HSM_OPT_RRC_RESET_ONLY      0x0020
@@ -95,10 +90,14 @@ extern const uint8_t sc_hsm_aid[];
 #define CD_PREFIX               0xC8        /* Hi byte in file identifier for PKCS#15 CD objects */
 #define DCOD_PREFIX             0xC9        /* Hi byte in file identifier for PKCS#15 DCOD objects */
 #define CA_CERTIFICATE_PREFIX   0xCA        /* Hi byte in file identifier for CA certificates */
+#define HSM_OBJECT_PREFIX       0xC7        /* Physical v1 HSM object records */
 #define KEY_PREFIX              0xCC        /* Hi byte in file identifier for key objects */
 #define PROT_DATA_PREFIX        0xCD        /* Hi byte in file identifier for PIN protected data objects */
 #define EE_CERTIFICATE_PREFIX   0xCE        /* Hi byte in file identifier for EE certificates */
 #define DATA_PREFIX             0xCF        /* Hi byte in file identifier for readable data objects */
+
+#define HSM_OBJECT_NAMESPACE    0x0001
+#define HSM_OBJECT_KEY_MATERIAL 0x0001
 
 #define P15_KEYTYPE_RSA     0x30
 #define P15_KEYTYPE_ECC     0xA0
@@ -108,27 +107,64 @@ extern const uint8_t sc_hsm_aid[];
 
 extern int pin_reset_retries(const file_t *pin, bool);
 extern int pin_wrong_retry(const file_t *pin);
+extern void select_file(file_t *pe);
 
-extern void hash(const uint8_t *input, uint16_t len, uint8_t output[32]);
-extern uint16_t get_device_options();
+extern int add_cert_puk_store(const_byte_array_t data, bool copy);
+extern int parse_token_info(const file_t *f, int mode);
+extern int parse_ef_dir(const file_t *f, int mode);
+extern void scan_all(void);
+extern void reset_puk_store(void);
+extern uint16_t get_device_options(void);
 extern bool has_session_pin, has_session_sopin;
 extern uint8_t session_pin[32], session_sopin[32];
-extern uint16_t check_pin(const file_t *pin, const uint8_t *data, uint16_t len);
-extern bool pka_enabled();
+extern uint16_t check_pin(const file_t *pin, const_byte_array_t data);
+extern bool pka_enabled(void);
 extern const uint8_t *dev_name;
 extern uint16_t dev_name_len;
 extern uint8_t puk_status[MAX_PUK];
 extern int puk_store_select_chr(const uint8_t *chr);
-extern int delete_file(file_t *ef);
-extern const uint8_t *get_meta_tag(file_t *ef, uint16_t meta_tag, uint16_t *tag_len);
+extern const_byte_array_t get_meta_tag(file_t *ef, uint16_t meta_tag);
+extern void hsm_key_append_fci_metadata(uint8_t key_id);
 extern bool key_has_purpose(file_t *ef, uint8_t purpose);
-extern int load_private_key_rsa(mbedtls_rsa_context *ctx, file_t *fkey);
-extern int load_private_key_ec(mbedtls_ecp_keypair *ctx, file_t *fkey);
-extern int load_private_key_ecdh(mbedtls_ecp_keypair *ctx, file_t *fkey);
-extern bool wait_button_pressed();
+extern int load_private_key_rsa(mbedtls_rsa_context *ctx, file_t *fkey, uint16_t operation, bool internal_firmware);
+extern int load_private_key_ec(mbedtls_ecp_keypair *ctx, file_t *fkey, uint16_t operation, bool internal_firmware);
+extern int load_private_key_ecdh(mbedtls_ecp_keypair *ctx, file_t *fkey, uint16_t operation, bool internal_firmware);
+extern bool wait_button_pressed(void);
 extern int store_keys(void *key_ctx, int type, uint8_t key_id);
 extern int find_and_store_meta_key(uint8_t key_id);
+extern file_t *hsm_key_search(uint8_t key_id);
+extern file_t *hsm_key_open_or_create(uint8_t key_id);
+extern uint16_t hsm_key_logical_fid(const file_t *file);
 extern uint32_t get_key_counter(file_t *fkey);
 extern uint32_t decrement_key_counter(file_t *fkey);
+extern int cmd_select(void);
+extern int cmd_list_keys(void);
+extern int cmd_read_binary(void);
+extern int cmd_verify(void);
+extern int cmd_reset_retry(void);
+extern int cmd_challenge(void);
+extern bool pka_challenge_pending(void);
+extern void clear_pka_challenge(void);
+extern int cmd_external_authenticate(void);
+extern int cmd_mse(void);
+extern int cmd_initialize(void);
+extern int cmd_key_domain(void);
+extern int cmd_key_wrap(void);
+extern int cmd_keypair_gen(void);
+extern int cmd_update_ef(void);
+extern int cmd_delete_file(void);
+extern int cmd_change_pin(void);
+extern int cmd_key_gen(void);
+extern int cmd_signature(void);
+extern int cmd_key_unwrap(void);
+extern int cmd_decrypt_asym(void);
+extern int cmd_cipher_sym(void);
+extern int cmd_derive_asym(void);
+extern int cmd_extras(void);
+extern int cmd_general_authenticate(void);
+extern int cmd_puk_auth(void);
+extern int cmd_pso(void);
+extern int cmd_bip_slip(void);
+extern uint8_t get_key_domain(file_t *fkey);
 
 #endif

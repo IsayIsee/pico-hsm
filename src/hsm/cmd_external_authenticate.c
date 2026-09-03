@@ -19,12 +19,13 @@
 #include "sc_hsm.h"
 #include "cvc.h"
 #include "files.h"
+#include "object_authorization.h"
 
 extern file_t *ef_puk_aut;
 extern uint8_t challenge[256];
-extern uint8_t challenge_len;
+extern uint16_t challenge_len;
 
-int cmd_external_authenticate() {
+int cmd_external_authenticate(void) {
     if (P1(apdu) != 0x0 || P2(apdu) != 0x0) {
         return SW_INCORRECT_P1P2();
     }
@@ -34,7 +35,10 @@ int cmd_external_authenticate() {
     if (apdu.nc == 0) {
         return SW_WRONG_LENGTH();
     }
-    file_t *ef_puk = search_file(EF_PUKAUT);
+    if (!pka_challenge_pending()) {
+        return SW_CONDITIONS_NOT_SATISFIED();
+    }
+    file_t *ef_puk = file_search(EF_PUKAUT);
     if (!file_has_data(ef_puk)) {
         return SW_FILE_NOT_FOUND();
     }
@@ -43,14 +47,8 @@ int cmd_external_authenticate() {
     uint8_t *input = (uint8_t *) calloc(dev_name_len + challenge_len, sizeof(uint8_t)), hash[32];
     memcpy(input, dev_name, dev_name_len);
     memcpy(input + dev_name_len, challenge, challenge_len);
-    hash256(input, dev_name_len + challenge_len, hash);
-    int r =
-        puk_verify(apdu.data,
-                   (uint16_t)apdu.nc,
-                   hash,
-                   32,
-                   file_get_data(ef_puk_aut),
-                   file_get_size(ef_puk_aut));
+    hash256(CONST_BYTE_ARRAY(input, dev_name_len + challenge_len), hash);
+    int r = puk_verify(CONST_BYTE_ARRAY(apdu.data, (uint16_t)apdu.nc), CONST_BYTE_ARRAY(hash, 32), CONST_BYTE_ARRAY(file_get_data(ef_puk_aut), file_get_size(ef_puk_aut)));
     free(input);
     if (r != 0) {
         return SW_CONDITIONS_NOT_SATISFIED();
@@ -61,7 +59,11 @@ int cmd_external_authenticate() {
         auts += puk_status[i];
     }
     if (auts >= puk_data[2]) {
+        if (!isUserAuthenticated) {
+            hsm_object_authorization_session_invalidate();
+        }
         isUserAuthenticated = true;
+        clear_pka_challenge();
     }
     return SW_OK();
 }

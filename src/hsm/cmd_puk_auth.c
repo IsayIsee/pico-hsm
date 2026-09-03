@@ -19,9 +19,9 @@
 #include "files.h"
 #include "cvc.h"
 
-int cmd_puk_auth() {
+int cmd_puk_auth(void) {
     uint8_t p1 = P1(apdu), p2 = P2(apdu);
-    file_t *ef_puk = search_file(EF_PUKAUT);
+    file_t *ef_puk = file_search(EF_PUKAUT);
     if (!file_has_data(ef_puk)) {
         if (apdu.nc > 0) {
             return SW_FILE_NOT_FOUND();
@@ -31,13 +31,16 @@ int cmd_puk_auth() {
     uint8_t *puk_data = file_get_data(ef_puk);
     if (apdu.nc > 0) {
         if (p1 == 0x0 || p1 == 0x1) {
+            if (!has_session_pin && !has_session_sopin) {
+                return SW_SECURITY_STATUS_NOT_SATISFIED();
+            }
             file_t *ef = NULL;
             if (p1 == 0x0) { /* Add */
                 if (p2 != 0x0) {
                     return SW_INCORRECT_P1P2();
                 }
                 for (uint8_t i = 0; i < puk_data[0]; i++) {
-                    ef = search_file(EF_PUK + i);
+                    ef = file_search(EF_PUK + i);
                     if (!ef) { /* Never should not happen */
                         return SW_MEMORY_FAILURE();
                     }
@@ -45,24 +48,30 @@ int cmd_puk_auth() {
                         break;
                     }
                 }
+                if (!ef || file_has_data(ef)) {
+                    return SW_FILE_FULL();
+                }
                 uint8_t *tmp = (uint8_t *) calloc(file_get_size(ef_puk), sizeof(uint8_t));
                 memcpy(tmp, puk_data, file_get_size(ef_puk));
                 tmp[1] = puk_data[1] - 1;
-                file_put_data(ef_puk, tmp, file_get_size(ef_puk));
+                file_put_data(ef_puk, CONST_BYTE_ARRAY(tmp, file_get_size(ef_puk)));
                 puk_data = file_get_data(ef_puk);
                 free(tmp);
             }
             else if (p1 == 0x1) {   /* Replace */
+                if (!(get_device_options() & HSM_OPT_REPLACE_PKA)) {
+                    return SW_CONDITIONS_NOT_SATISFIED();
+                }
                 if (p2 >= puk_data[0]) {
                     return SW_INCORRECT_P1P2();
                 }
-                ef = search_file(EF_PUK + p2);
+                ef = file_search(EF_PUK + p2);
                 if (!ef) { /* Never should not happen */
                     return SW_MEMORY_FAILURE();
                 }
             }
-            file_put_data(ef, apdu.data, (uint16_t)apdu.nc);
-            low_flash_available();
+            file_put_data(ef, CONST_BYTE_ARRAY(apdu.data, (uint16_t)apdu.nc));
+            flash_commit();
         }
         else {
             return SW_INCORRECT_P1P2();
@@ -72,7 +81,7 @@ int cmd_puk_auth() {
         if (p2 >= puk_data[0]) {
             return SW_INCORRECT_P1P2();
         }
-        file_t *ef = search_file(EF_PUK + p2);
+        file_t *ef = file_search(EF_PUK + p2);
         if (!ef) {
             return SW_INCORRECT_P1P2();
         }
